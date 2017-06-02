@@ -1,0 +1,45 @@
+{
+  "title": "Candle",
+  "status": "active",
+  "experimental": true,
+  "date": "2017-05-06T09:40:18-0500",
+  "kind": "instance",
+  "fhirVersion": "3.0.1",
+  "acceptUnknown": "no",
+  "format": [
+    "json"
+  ],
+  "rest": [
+    {
+      "mode": "server",
+      "security": {
+        "cors": true
+      },
+      "resource": [
+        {
+          "type": "Patient",
+          "interaction": [
+            {
+              "code": "read"
+            },
+            {
+              "code": "search-type"
+            }
+          ]
+        },
+        {
+          "type": "Observation",
+          "interaction": [
+            {
+              "code": "read"
+            },
+            {
+              "code": "search-type"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "resourceType": "CapabilityStatement"
+}
