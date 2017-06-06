@@ -9,7 +9,10 @@ module Candle
     CAPABILITY_STATEMENT = File.open(File.join(File.dirname(File.absolute_path(__FILE__)),'resources','capabilitystatement.json'),'r:UTF-8',&:read)
 
     def self.dbconnect
-      PG.connect :dbname => CONFIGURATION['database']['name'], :user => CONFIGURATION['database']['user']
+      PG.connect :host => CONFIGURATION['database']['host'],
+        :dbname => CONFIGURATION['database']['name'],
+        :user => CONFIGURATION['database']['user'],
+        :password => CONFIGURATION['database']['password']
     end
   end
 end

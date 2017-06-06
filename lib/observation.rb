@@ -54,7 +54,7 @@ module Candle
             observation.id = nil
             resource = Candle::Security.sanitize(observation.to_json)
             statement = "INSERT INTO observation(patient,encounter,code,resource) VALUES(#{patient},#{encounter},'#{code}','#{resource}') RETURNING id;"
-            puts statement
+            # puts statement
             rs = con.exec(statement)
             observation.id = rs.getvalue(0, 0)
           end

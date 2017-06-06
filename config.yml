@@ -1,5 +1,7 @@
 ---
 page_size: 100
 database:
+  host: localhost
   name: fhir
   user: candle
+  password: 
