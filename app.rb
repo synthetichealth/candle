@@ -1,11 +1,10 @@
 # OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE
 
 require 'yaml'
-require 'sinatra'
-require 'sinatra/cross_origin'
-require 'fhir_models'
-require 'sequel'
 require 'logger'
+
+require 'bundler/setup'
+Bundler.require(:default)
 
 Dir.glob(File.join(File.dirname(File.absolute_path(__FILE__)),'lib','*.rb')).each do |file|
   require file
