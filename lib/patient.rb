@@ -39,21 +39,14 @@ module Candle
       else
         # Add the patient to the database
         begin
-          con = Candle::Config.dbconnect
-          con.transaction do |con|
-            name = patient.name.map{|name| [name.text, name.family, name.given].flatten.compact.join(' ')}.compact.join(' ')
-            name = Candle::Security.sanitize(name, 64)
-            race = patient.extension.find{|x| x.url == RACE_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
-            race = Candle::Security.sanitize(race, 6)
-            ethnicity = patient.extension.find{|x| x.url == ETHNICITY_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
-            ethnicity = Candle::Security.sanitize(ethnicity, 6)
-            patient.id = nil
-            resource = Candle::Security.sanitize(patient.to_json)
-            statement = "INSERT INTO patient(name,resource,race,ethnicity) VALUES('#{name}','#{resource}','#{race}','#{ethnicity}') RETURNING id;"
-            # puts statement
-            rs = con.exec(statement)
-            patient.id = rs.getvalue(0, 0)
-          end
+          name = patient.name.map{|name| [name.text, name.family, name.given].flatten.compact.join(' ')}.compact.join(' ')
+          race = patient.extension.find{|x| x.url == RACE_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
+          ethnicity = patient.extension.find{|x| x.url == ETHNICITY_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
+          patient.id = nil
+          resource = patient.to_json
+          id = DB[:patient].insert(name: name, race: race, ethnicity: ethnicity, resource: resource)
+          patient.id = id
+
           response_code = 201
           response_location = "Patient/#{patient.id}"
           response_body = patient.to_json
@@ -65,8 +58,6 @@ module Candle
           error.issue.last.code = 'required'
           error.issue.last.diagnostics = e.message
           response_body = error.to_json
-        ensure
-          con.close if con
         end
       end
       # Return the results
@@ -79,19 +70,10 @@ module Candle
       id = Candle::Security.sanitize(id)
       return [404, Candle::Config::CONTENT_TYPE, nil] unless id.is_a?(Numeric)
       begin
-        con = Candle::Config.dbconnect
-        patient = nil
-        con.transaction do |con|
-          query = "SELECT resource FROM patient WHERE id = #{id}"
-          puts "QUERY: #{query}"
-          rs = con.exec(query)
-          if rs.ntuples > 0
-            json = rs.getvalue(0, 0)
-            patient = FHIR.from_contents(json)
-          end
-        end
-        if patient
+        patient_row = DB[:patient].select(:resource).first(id: id)
+        if patient_row
           response_code = 200
+          patient = FHIR.from_contents(patient_row[:resource])
           patient.id = id
           response_body = patient.to_json
         else
@@ -106,14 +88,11 @@ module Candle
         error.issue.last.code = 'required'
         error.issue.last.diagnostics = e.message
         response_body = error.to_json
-      ensure
-        con.close if con
       end
       [response_code, Candle::Config::CONTENT_TYPE, response_body]
     end
 
     def self.search(request, params)
-      Candle::Security.sanitize(params)
       name = params['name']
       gender = params['gender']
       birthDate = params['birthdate']
@@ -127,38 +106,34 @@ module Candle
       page = 0 if page < 0
       params.delete('page')
       begin
-        con = Candle::Config.dbconnect
+        query = DB[:patient].select(:resource, :id)
         patient = nil
-        selectq = 'patient.id, patient.resource'
-        selectq = 'distinct(patient.id), patient.resource' if has
-        fromq = ['patient']
-        clauses = []
+        if has
+          query = query.distinct(:id)
+        end
         if has
           has.each do |join|
-            fromq << join[0].downcase
-            clauses << "#{join[0].downcase}.#{join[1]} = patient.id"
+            query = query.join(join[0].downcase, id: join[1])
           end
         end
-        pageq = "patient.id > #{page}"
-        countq = 'count(*)'
-        countq = 'count(distinct(patient.id))' if has
+        query = query.where('id > ?', page)
         unless params.empty?
-          clauses << "patient.race = '#{race}'" if race
-          clauses << "patient.ethnicity = '#{ethnicity}'" if ethnicity
-          clauses << "patient.name ILIKE '%#{name}%'" if name
-          clauses << "patient.resource @> '{ \"gender\": \"#{gender}\" }'" if gender
+          query = query.where(:race, race) if race
+          query = query.where(:ethnicity, ethnicity) if ethnicity
+          query = query.where(Sequel.ilike(:name, "%#{name}%")) if name
+          query = query.where("patient.resource @> '{ \"gender\": \"#{gender}\" }'") if gender
           if birthDate
             if birthDate.start_with?('eq')
-              clauses << "to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = '#{birthDate[2..-1]}'"
+              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = '#{birthDate[2..-1]}'")
             elsif birthDate.start_with?('ge')
-              clauses << "to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') >= '#{birthDate[2..-1]}'"
+              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') >= '#{birthDate[2..-1]}'")
             else
               # fastest
               # clauses << " resource @> '{ \"birthDate\": \"#{birthDate}\" }'"
-              clauses << "to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = '#{birthDate}'"
+              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = '#{birthDate}'")
             end
           end
-          clauses << "patient.resource #>>'{address,0,city}' = '#{city}'" if city
+          query = query.where("patient.resource #>>'{address,0,city}' = '#{city}'") if city
           if has
             has.each do |chain|
               # ex. chain = [ 'Observation', 'patient', 'code', '8480-6' ]
@@ -166,30 +141,21 @@ module Candle
             end
           end
         end
-        query = ['SELECT', selectq, 'FROM', fromq.join(',')].join(' ')
-        query += [' WHERE', clauses.join(' AND ')].join(' ') unless clauses.empty?
-        query += " ORDER BY patient.id LIMIT #{Candle::Config::CONFIGURATION['page_size']}"
-        count = ['SELECT', countq, 'FROM', fromq.join(',')].join(' ')
-        count += [' WHERE', clauses.join(' AND ')].join(' ') unless clauses.empty?
-        puts "QUERY: #{query}"
-        puts "COUNT: #{count}"
+
+        count_query = query.dup
+        query = query.limit(100)
         bundle = FHIR::Bundle.new({'type'=>'searchset','total'=>0})
         page_total = 0
         start = Time.now
-        con.transaction do |con|
-          cs = con.exec(count)
-          bundle.total = cs.getvalue(0, 0).to_i
-          rs = con.exec(query)
-          rs.each do |row|
-            id = row['id']
-            json = row['resource']
-            resource = FHIR.from_contents(json)
-            resource.id = id
-            bundle.entry << Candle::Helpers.bundle_entry("#{request.base_url}/fhir/Patient/#{id}", resource)
-          end
-          page_total = rs.ntuples
-          bundle.link << FHIR::Bundle::Link.new({'relation': 'self', 'url': request.url})
+        bundle.total = count_query.count
+        query.each do |row|
+          id = row[:id]
+          json = row[:resource]
+          resource = FHIR.from_contents(json)
+          resource.id = id
+          bundle.entry << Candle::Helpers.bundle_entry("#{request.base_url}/fhir/Patient/#{id}", resource)
         end
+        bundle.link << FHIR::Bundle::Link.new({'relation': 'self', 'url': request.url})
         if bundle.total >= 0 || page_given
           begin
             start_page_from_index = bundle.entry.last.resource.id
@@ -217,8 +183,6 @@ module Candle
         error.issue.last.code = 'required'
         error.issue.last.diagnostics = e.message
         response_body = error.to_json
-      ensure
-        con.close if con
       end
       [response_code, Candle::Config::CONTENT_TYPE, response_body]
     end

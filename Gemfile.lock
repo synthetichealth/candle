@@ -21,6 +21,7 @@ GEM
     rack (2.0.3)
     rack-protection (2.0.0)
       rack
+    sequel (4.47.0)
     sinatra (2.0.0)
       mustermann (~> 1.0)
       rack (~> 2.0)
@@ -39,9 +40,10 @@ PLATFORMS
 DEPENDENCIES
   fhir_models
   pg
+  sequel
   sinatra
   sinatra-cross_origin
   thin
 
 BUNDLED WITH
-   1.15.0
+   1.15.1
