@@ -15,6 +15,7 @@ GEM
     mime-types (2.99.3)
     mini_portile2 (2.1.0)
     minitest (5.10.1)
+    minitest-emoji (2.0.0)
     mustermann (1.0.0)
     nokogiri (1.7.2)
       mini_portile2 (~> 2.1.0)
@@ -42,6 +43,7 @@ PLATFORMS
 DEPENDENCIES
   fhir_models
   minitest
+  minitest-emoji
   pg
   rake
   sequel

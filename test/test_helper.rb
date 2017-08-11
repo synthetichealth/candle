@@ -1,5 +1,7 @@
 require 'bundler/setup'
 Bundler.require(:default, :test)
+require 'minitest/autorun'
+require 'minitest/emoji'
 
 DB = Sequel.connect(adapter: 'postgres', host: 'localhost', database: 'candle')
 

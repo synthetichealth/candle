@@ -10,4 +10,5 @@ gem 'sequel'
 
 group :test do
   gem 'minitest'
+  gem 'minitest-emoji'
 end
