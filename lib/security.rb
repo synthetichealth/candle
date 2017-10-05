@@ -3,7 +3,7 @@ module Candle
     # TODO White list parameters
     # TODO Check parameter datatypes
     # TODO Filter parameters on allowed values
-    def self.sanitize(params)
+    def self.sanitize(params, maxlength=nil)
       if params.is_a?(Hash)
         has = []
         downcase = {}
@@ -19,7 +19,11 @@ module Candle
         params['_has'] = has unless has.empty?
       elsif params.is_a?(String)
         value = params.gsub("'","''")
-        value = Integer(value) if integer?(value)
+        if integer?(value)
+          value = Integer(value)
+        elsif maxlength && value.length > maxlength
+          value = value[0..maxlength-1]
+        end
         value
       elsif params.is_a?(Numeric)
         params

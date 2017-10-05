@@ -16,13 +16,9 @@ module Candle
         validate_errors = [ 'Failed to parse Patient.' ]
         bad_input = true
       end
-      if content_type && !content_type.start_with?('application/fhir+json')
+      if !Candle::Helpers.valid_content_type(content_type)
         # We only support JSON
-        error = FHIR::OperationOutcome.new
-        error.issue << FHIR::OperationOutcome::Issue.new
-        error.issue.last.severity = 'error'
-        error.issue.last.code = 'not-supported'
-        error.issue.last.diagnostics = "The content-type `#{content_type}` is not supported. This service only supports `application/fhir+json`."
+        error = Candle::Helpers.reject_content_type(content_type)
         response_code = 422
         response_body = error.to_json
       elsif bad_input
@@ -46,11 +42,11 @@ module Candle
           con = Candle::Config.dbconnect
           con.transaction do |con|
             name = patient.name.map{|name| [name.text, name.family, name.given].flatten.compact.join(' ')}.compact.join(' ')
-            name = Candle::Security.sanitize(name)
+            name = Candle::Security.sanitize(name, 64)
             race = patient.extension.find{|x| x.url == RACE_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
-            race = Candle::Security.sanitize(race)
+            race = Candle::Security.sanitize(race, 6)
             ethnicity = patient.extension.find{|x| x.url == ETHNICITY_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
-            ethnicity = Candle::Security.sanitize(ethnicity)
+            ethnicity = Candle::Security.sanitize(ethnicity, 6)
             patient.id = nil
             resource = Candle::Security.sanitize(patient.to_json)
             statement = "INSERT INTO patient(name,resource,race,ethnicity) VALUES('#{name}','#{resource}','#{race}','#{ethnicity}') RETURNING id;"

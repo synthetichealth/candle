@@ -1,4 +1,5 @@
 {
+  "name": "Candle",
   "title": "Candle",
   "status": "active",
   "experimental": true,
@@ -23,6 +24,9 @@
               "code": "read"
             },
             {
+              "code": "create"
+            },
+            {
               "code": "search-type"
             }
           ]
@@ -32,6 +36,9 @@
           "interaction": [
             {
               "code": "read"
+            },
+            {
+              "code": "create"
             },
             {
               "code": "search-type"

@@ -14,13 +14,9 @@ module Candle
         validate_errors = [ 'Failed to parse Observation.' ]
         bad_input = true
       end
-      if content_type && !content_type.start_with?('application/fhir+json')
+      if !Candle::Helpers.valid_content_type(content_type)
         # We only support JSON
-        error = FHIR::OperationOutcome.new
-        error.issue << FHIR::OperationOutcome::Issue.new
-        error.issue.last.severity = 'error'
-        error.issue.last.code = 'not-supported'
-        error.issue.last.diagnostics = "The content-type `#{content_type}` is not supported. This service only supports `application/fhir+json`."
+        error = Candle::Helpers.reject_content_type(content_type)
         response_code = 422
         response_body = error.to_json
       elsif bad_input
