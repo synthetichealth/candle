@@ -37,23 +37,17 @@ module Candle
       else
         # Add the observation to the database
         begin
-          con = Candle::Config.dbconnect
-          con.transaction do |con|
-            patient = patient_id || (Candle::Helpers.extract_id(observation.subject.reference, 'Patient') rescue 'null')
-            patient = 'null' unless patient
-            encounter = encounter_id || (Candle::Helpers.extract_id(observation.context.reference, 'Encounter') rescue 'null')
-            encounter = 'null' unless encounter
-            code = observation.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ')
-            components = observation.component.map{|component| component.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ') }.compact.join(' ')
-            code += " #{components}" if components
-            code = Candle::Security.sanitize(code)
-            observation.id = nil
-            resource = Candle::Security.sanitize(observation.to_json)
-            statement = "INSERT INTO observation(patient,encounter,code,resource) VALUES(#{patient},#{encounter},'#{code}','#{resource}') RETURNING id;"
-            # puts statement
-            rs = con.exec(statement)
-            observation.id = rs.getvalue(0, 0)
-          end
+          patient = patient_id || (Candle::Helpers.extract_id(observation.subject.reference, 'Patient') rescue 'null')
+          patient = 'null' unless patient
+          encounter = encounter_id || (Candle::Helpers.extract_id(observation.context.reference, 'Encounter') rescue 'null')
+          encounter = 'null' unless encounter
+          code = observation.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ')
+          components = observation.component.map{|component| component.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ') }.compact.join(' ')
+          code += " #{components}" if components
+          observation.id = nil
+          resource = observation.to_json
+          id = DB[:observation] = {patient: patient, encounter: encounter, code: code, resource: resource}
+          observation.id = id
           response_code = 201
           response_location = observation.id
           response_body = observation.to_json
@@ -79,19 +73,10 @@ module Candle
       id = Candle::Security.sanitize(id)
       return [404, Candle::Config::CONTENT_TYPE, nil] unless id.is_a?(Numeric)
       begin
-        con = Candle::Config.dbconnect
-        observation = nil
-        con.transaction do |con|
-          query = "SELECT resource FROM observation WHERE id = #{id}"
-          puts "QUERY: #{query}"
-          rs = con.exec(query)
-          if rs.ntuples > 0
-            json = rs.getvalue(0, 0)
-            observation = FHIR.from_contents(json)
-          end
-        end
-        if observation
+        observation_row = DB[:patient].select(:resource).first(id: id)
+        if observation_row
           response_code = 200
+          observation = observation_row[:resource]
           observation.id = id
           response_body = observation.to_json
         else
@@ -106,8 +91,6 @@ module Candle
         error.issue.last.code = 'required'
         error.issue.last.diagnostics = e.message
         response_body = error.to_json
-      ensure
-        con.close if con
       end
       [response_code, Candle::Config::CONTENT_TYPE, response_body]
     end
@@ -125,15 +108,13 @@ module Candle
       page = 0 if page < 0
       params.delete('page')
       begin
-        con = Candle::Config.dbconnect
+        query = DB[:patient].select(:resource, :id)
         observation = nil
-        query = 'SELECT id, resource FROM observation WHERE'
-        query += " id > #{page}"
+        query = query.where('id > ?', page)
         count = 'SELECT count(*) FROM observation'
         unless params.empty?
-          clauses = []
-          clauses << " patient = #{patient}" if patient
-          clauses << " encounter = #{encounter}" if encounter
+          query = query.where(:patient, patient) if patient
+          query = query.where(:encounter, encounter) if encounter
           clauses << " code ILIKE '%#{code}%'" if code
           # clauses << " resource @> '{ \"gender\": \"#{gender}\" }'" if gender
           if date # TODO: handle effectPeriod.start

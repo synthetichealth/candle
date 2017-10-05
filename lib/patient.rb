@@ -118,22 +118,23 @@ module Candle
         end
         query = query.where('id > ?', page)
         unless params.empty?
+          resource_jsonb = Sequel.pg_jsonb_op(:resource)
           query = query.where(:race, race) if race
           query = query.where(:ethnicity, ethnicity) if ethnicity
           query = query.where(Sequel.ilike(:name, "%#{name}%")) if name
-          query = query.where("patient.resource @> '{ \"gender\": \"#{gender}\" }'") if gender
+          query = query.where(resource_jsonb.get_text('gender') => gender) if gender
           if birthDate
             if birthDate.start_with?('eq')
-              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = '#{birthDate[2..-1]}'")
+              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = ?", birthDate[2..-1])
             elsif birthDate.start_with?('ge')
-              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') >= '#{birthDate[2..-1]}'")
+              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') >= ?", birthDate[2..-1])
             else
               # fastest
               # clauses << " resource @> '{ \"birthDate\": \"#{birthDate}\" }'"
-              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = '#{birthDate}'")
+              query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = ?", birthDate)
             end
           end
-          query = query.where("patient.resource #>>'{address,0,city}' = '#{city}'") if city
+          query = query.where(resource_jsonb.get_text('address,0,city') => city) if city
           if has
             has.each do |chain|
               # ex. chain = [ 'Observation', 'patient', 'code', '8480-6' ]

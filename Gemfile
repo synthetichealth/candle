@@ -9,6 +9,7 @@ gem 'pg'
 gem 'sequel'
 
 group :test do
+  gem 'rerun'
   gem 'minitest'
   gem 'minitest-emoji'
 end

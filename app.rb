@@ -16,6 +16,7 @@ DB = Sequel.connect(adapter: 'postgres', :host => Candle::Config::CONFIGURATION[
   :password => Candle::Config::CONFIGURATION['database']['password'])
 
 DB.loggers << Logger.new($stdout)
+Sequel.extension :pg_json_ops
 
 enable :cross_origin
 register Sinatra::CrossOrigin
