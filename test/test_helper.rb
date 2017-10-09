@@ -6,6 +6,7 @@ require 'minitest/emoji'
 DB = Sequel.connect(adapter: 'postgres', host: 'localhost', database: 'candle')
 
 require './lib/config'
+require './lib/helpers'
 
 class SequelTestCase < Minitest::Test
   def run(*args, &block)
