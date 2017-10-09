@@ -116,7 +116,7 @@ module Candle
             query = query.join(join[0].downcase, id: join[1])
           end
         end
-        query = query.where('id > ?', page)
+        query = query.where {id > page}
         unless params.empty?
           resource_jsonb = Sequel.pg_jsonb_op(:resource)
           query = query.where(:race, race) if race
