@@ -59,8 +59,6 @@ module Candle
           error.issue.last.code = 'required'
           error.issue.last.diagnostics = e.message
           response_body = error.to_json
-        ensure
-          con.close if con
         end
       end
       # Return the results
@@ -108,24 +106,22 @@ module Candle
       page = 0 if page < 0
       params.delete('page')
       begin
-        query = DB[:patient].select(:resource, :id)
+        query = DB[:observation].select(:resource, :id)
         observation = nil
-        query = query.where('id > ?', page)
-        count = 'SELECT count(*) FROM observation'
         unless params.empty?
-          query = query.where(:patient, patient) if patient
-          query = query.where(:encounter, encounter) if encounter
-          clauses << " code ILIKE '%#{code}%'" if code
+          query = query.where(patient: patient) if patient
+          query = query.where(encounter: encounter) if encounter
+          query = query.where(Sequel.ilike(:code, "%#{code}%")) if code
           # clauses << " resource @> '{ \"gender\": \"#{gender}\" }'" if gender
           if date # TODO: handle effectPeriod.start
             if date.start_with?('eq')
-              clauses << " to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') = '#{date[2..-1]}'"
+              query = query.where("to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') = ?", date[2..-1])
             elsif date.start_with?('ge')
-              clauses << " to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') >= '#{date[2..-1]}'"
+              query = query.where("to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') >= ?", date[2..-1])
             else
               # fastest
               # clauses << " resource @> '{ \"effectiveDateTime\": \"#{date}\" }'"
-              clauses << " to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') = '#{date}'"
+              query = query.where("to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') >= ?", date)
             end
           end
           if value
@@ -144,33 +140,24 @@ module Candle
             else
               '='
             end
-            clauses << " to_number(resource #>>'{valueQuantity,value}','9999D99') #{operator} #{value.to_f}"
+            query = query.where("to_number(resource #>>'{valueQuantity,value}','9999D99') #{operator} ?", value.to_f)
           end
-          query += ' AND' unless clauses.empty?
-          query += clauses.join(' AND')
-          count += ' WHERE' unless clauses.empty?
-          count += clauses.join(' AND')
         end
-        query += " ORDER BY id LIMIT #{Candle::Config::CONFIGURATION['page_size']}"
-        puts "QUERY: #{query}"
-        puts "COUNT: #{count}"
+        count_query = query.dup
+        query = query.limit(Candle::Config::CONFIGURATION['page_size'])
+        query = query.where {id > page}
         bundle = FHIR::Bundle.new({'type'=>'searchset','total'=>0})
         page_total = 0
         start = Time.now
-        con.transaction do |con|
-          cs = con.exec(count)
-          bundle.total = cs.getvalue(0, 0).to_i
-          rs = con.exec(query)
-          rs.each do |row|
-            id = row['id']
-            json = row['resource']
-            resource = FHIR.from_contents(json)
-            resource.id = id
-            bundle.entry << Candle::Helpers.bundle_entry("#{request.base_url}/fhir/Observation/#{id}", resource)
-          end
-          page_total = rs.ntuples
-          bundle.link << FHIR::Bundle::Link.new({'relation': 'self', 'url': request.url})
+        bundle.total = count_query.count
+        query.each do |row|
+          id = row[:id]
+          json = row[:resource]
+          resource = FHIR.from_contents(json)
+          resource.id = id
+          bundle.entry << Candle::Helpers.bundle_entry("#{request.base_url}/fhir/Observation/#{id}", resource)
         end
+        bundle.link << FHIR::Bundle::Link.new({'relation': 'self', 'url': request.url})
         if bundle.total >= 0 || page_given
           begin
             start_page_from_index = bundle.entry.last.resource.id
@@ -198,8 +185,6 @@ module Candle
         error.issue.last.code = 'required'
         error.issue.last.diagnostics = e.message
         response_body = error.to_json
-      ensure
-        con.close if con
       end
       [response_code, Candle::Config::CONTENT_TYPE, response_body]
     end
