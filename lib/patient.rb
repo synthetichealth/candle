@@ -111,7 +111,7 @@ module Candle
       page = 0 if page < 0
       params.delete('page')
       begin
-        query = DB[:patient].select(:patient__resource, :patient__id)
+        query = DB[:patient].select(Sequel.qualify('patient', 'resource'), Sequel.qualify('patient', 'id'))
         patient = nil
         if has
           query = query.distinct(:id)
@@ -138,7 +138,7 @@ module Candle
           if has
             has.each do |chain|
               query = query.left_join(chain[0].downcase.to_sym, patient: :id)
-              query = query.where(Sequel.ilike("#{chain[0].downcase}__#{chain[2]}".to_sym, "%#{chain[3]}%"))
+              query = query.where(Sequel.ilike(Sequel.qualify(chain[0].downcase, chain[2]), "%#{chain[3]}%"))
             end
           end
         end
