@@ -40,8 +40,8 @@ module Candle
         # Add the patient to the database
         begin
           name = patient.name.map{|name| [name.text, name.family, name.given].flatten.compact.join(' ')}.compact.join(' ')
-          race = patient.extension.find{|x| x.url == RACE_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
-          ethnicity = patient.extension.find{|x| x.url == ETHNICITY_EXT}.valueCodeableConcept.coding.first.code rescue 'null'
+          race = patient.extension.find{|x| x.url == RACE_EXT}.valueCodeableConcept.coding.first.code rescue nil
+          ethnicity = patient.extension.find{|x| x.url == ETHNICITY_EXT}.valueCodeableConcept.coding.first.code rescue nil
           patient.id = nil
           resource = patient.to_json
           id = DB[:patient].insert(name: name, race: race, ethnicity: ethnicity, resource: resource)
@@ -67,8 +67,7 @@ module Candle
     end
 
     def self.read(id)
-      id = Candle::Security.sanitize(id)
-      return [404, Candle::Config::CONTENT_TYPE, nil] unless id.is_a?(Numeric)
+      return [404, Candle::Config::CONTENT_TYPE, nil] if id.to_i == 0
       begin
         patient_row = DB[:patient].select(:resource).first(id: id)
         if patient_row
@@ -99,24 +98,25 @@ module Candle
       race = params['race']
       ethnicity = params['ethnicity']
       city = params['address-city']
-      has = params['_has']
+      has = []
+      params.each do |key, value|
+        if key.start_with?('_has')
+          has << key.split(':')[1..-1]
+          has.last << value
+        end
+      end
       page_raw = params['page']
       page_given = !page_raw.nil?
       page = (page_raw.to_i rescue 0)
       page = 0 if page < 0
       params.delete('page')
       begin
-        query = DB[:patient].select(:resource, :id)
+        query = DB[:patient].select(:patient__resource, :patient__id)
         patient = nil
         if has
           query = query.distinct(:id)
         end
-        if has
-          has.each do |join|
-            query = query.join(join[0].downcase, id: join[1])
-          end
-        end
-        query = query.where {id > page}
+        query = query.where(Sequel.lit('patient.id > ?', page))
         unless params.empty?
           resource_jsonb = Sequel.pg_jsonb_op(:resource)
           query = query.where(:race, race) if race
@@ -137,8 +137,8 @@ module Candle
           query = query.where(resource_jsonb.get_text('address,0,city') => city) if city
           if has
             has.each do |chain|
-              # ex. chain = [ 'Observation', 'patient', 'code', '8480-6' ]
-              clauses << "#{chain[0].downcase}.#{chain[2]} ILIKE '%#{chain[3]}%'"
+              query = query.left_join(chain[0].downcase.to_sym, patient: :id)
+              query = query.where(Sequel.ilike("#{chain[0].downcase}__#{chain[2]}".to_sym, "%#{chain[3]}%"))
             end
           end
         end

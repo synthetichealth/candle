@@ -37,16 +37,16 @@ module Candle
       else
         # Add the observation to the database
         begin
-          patient = patient_id || (Candle::Helpers.extract_id(observation.subject.reference, 'Patient') rescue 'null')
-          patient = 'null' unless patient
-          encounter = encounter_id || (Candle::Helpers.extract_id(observation.context.reference, 'Encounter') rescue 'null')
-          encounter = 'null' unless encounter
+          patient = patient_id || (Candle::Helpers.extract_id(observation.subject.reference, 'Patient') rescue nil)
+          patient = nil unless patient
+          encounter = encounter_id || (Candle::Helpers.extract_id(observation.context.reference, 'Encounter') rescue nil)
+          encounter = nil unless encounter
           code = observation.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ')
           components = observation.component.map{|component| component.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ') }.compact.join(' ')
           code += " #{components}" if components
           observation.id = nil
           resource = observation.to_json
-          id = DB[:observation] = {patient: patient, encounter: encounter, code: code, resource: resource}
+          id = DB[:observation].insert({patient: patient, encounter: encounter, code: code, resource: resource})
           observation.id = id
           response_code = 201
           response_location = observation.id
@@ -68,13 +68,12 @@ module Candle
     end
 
     def self.read(id)
-      id = Candle::Security.sanitize(id)
-      return [404, Candle::Config::CONTENT_TYPE, nil] unless id.is_a?(Numeric)
+      return [404, Candle::Config::CONTENT_TYPE, nil] if id.to_i == 0
       begin
-        observation_row = DB[:patient].select(:resource).first(id: id)
+        observation_row = DB[:observation].select(:resource).first(id: id)
         if observation_row
           response_code = 200
-          observation = observation_row[:resource]
+          observation = FHIR.from_contents(observation_row[:resource])
           observation.id = id
           response_body = observation.to_json
         else
@@ -94,7 +93,6 @@ module Candle
     end
 
     def self.search(request, params)
-      Candle::Security.sanitize(params)
       patient = params['patient']
       encounter = params['encounter']
       code = params['code']
