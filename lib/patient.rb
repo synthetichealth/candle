@@ -118,7 +118,7 @@ module Candle
         end
         query = query.where(Sequel.lit('patient.id > ?', page))
         unless params.empty?
-          resource_jsonb = Sequel.pg_jsonb_op(:resource)
+          resource_jsonb = Sequel.pg_jsonb_op(Sequel.qualify('patient', 'resource'))
           query = query.where(:race, race) if race
           query = query.where(:ethnicity, ethnicity) if ethnicity
           query = query.where(Sequel.ilike(:name, "%#{name}%")) if name
