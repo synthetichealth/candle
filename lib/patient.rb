@@ -45,8 +45,7 @@ module Candle
           patient.id = nil
           resource = patient.to_json
           id = DB[:patient].insert(name: name, race: race, ethnicity: ethnicity, resource: resource)
-          patient.id = id
-
+          patient.id = id.to_s
           response_code = 201
           response_location = "Patient/#{patient.id}"
           response_body = patient.to_json
@@ -134,7 +133,7 @@ module Candle
               query = query.where("to_date(patient.resource ->> 'birthDate', 'YYYY-MM-DD') = ?", birthDate)
             end
           end
-          query = query.where(resource_jsonb.get_text('address,0,city') => city) if city
+          query = query.where(resource_jsonb.get_text(['{address,0,city}']) => city) if city
           if has
             has.each do |chain|
               query = query.left_join(chain[0].downcase.to_sym, patient: :id)

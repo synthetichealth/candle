@@ -47,7 +47,7 @@ module Candle
           observation.id = nil
           resource = observation.to_json
           id = DB[:observation].insert({patient: patient, encounter: encounter, code: code, resource: resource})
-          observation.id = id
+          observation.id = id.to_s
           response_code = 201
           response_location = observation.id
           response_body = observation.to_json
@@ -145,7 +145,6 @@ module Candle
         query = query.limit(Candle::Config::CONFIGURATION['page_size'])
         query = query.where {id > page}
         bundle = FHIR::Bundle.new({'type'=>'searchset','total'=>0})
-        page_total = 0
         start = Time.now
         bundle.total = count_query.count
         query.each do |row|
@@ -167,7 +166,7 @@ module Candle
             else
               request_url.gsub!("page=#{page_raw}","page=#{start_page_from_index}")
             end
-            bundle.link << FHIR::Bundle::Link.new({'relation': 'next', 'url': request_url}) if page_total > 0
+            bundle.link << FHIR::Bundle::Link.new({'relation': 'next', 'url': request_url})
           rescue
           end
         end
