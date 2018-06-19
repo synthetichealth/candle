@@ -37,23 +37,17 @@ module Candle
       else
         # Add the observation to the database
         begin
-          con = Candle::Config.dbconnect
-          con.transaction do |con|
-            patient = patient_id || (Candle::Helpers.extract_id(observation.subject.reference, 'Patient') rescue 'null')
-            patient = 'null' unless patient
-            encounter = encounter_id || (Candle::Helpers.extract_id(observation.context.reference, 'Encounter') rescue 'null')
-            encounter = 'null' unless encounter
-            code = observation.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ')
-            components = observation.component.map{|component| component.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ') }.compact.join(' ')
-            code += " #{components}" if components
-            code = Candle::Security.sanitize(code)
-            observation.id = nil
-            resource = Candle::Security.sanitize(observation.to_json)
-            statement = "INSERT INTO observation(patient,encounter,code,resource) VALUES(#{patient},#{encounter},'#{code}','#{resource}') RETURNING id;"
-            # puts statement
-            rs = con.exec(statement)
-            observation.id = rs.getvalue(0, 0)
-          end
+          patient = patient_id || (Candle::Helpers.extract_id(observation.subject.reference, 'Patient') rescue nil)
+          patient = nil unless patient
+          encounter = encounter_id || (Candle::Helpers.extract_id(observation.context.reference, 'Encounter') rescue nil)
+          encounter = nil unless encounter
+          code = observation.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ')
+          components = observation.component.map{|component| component.code.coding.map{|coding| [coding.system, coding.code].compact.join(' ')}.compact.join(' ') }.compact.join(' ')
+          code += " #{components}" if components
+          observation.id = nil
+          resource = observation.to_json
+          id = DB[:observation].insert({patient: patient, encounter: encounter, code: code, resource: resource})
+          observation.id = id.to_s
           response_code = 201
           response_location = observation.id
           response_body = observation.to_json
@@ -65,8 +59,6 @@ module Candle
           error.issue.last.code = 'required'
           error.issue.last.diagnostics = e.message
           response_body = error.to_json
-        ensure
-          con.close if con
         end
       end
       # Return the results
@@ -76,22 +68,12 @@ module Candle
     end
 
     def self.read(id)
-      id = Candle::Security.sanitize(id)
-      return [404, Candle::Config::CONTENT_TYPE, nil] unless id.is_a?(Numeric)
+      return [404, Candle::Config::CONTENT_TYPE, nil] if id.to_i == 0
       begin
-        con = Candle::Config.dbconnect
-        observation = nil
-        con.transaction do |con|
-          query = "SELECT resource FROM observation WHERE id = #{id}"
-          puts "QUERY: #{query}"
-          rs = con.exec(query)
-          if rs.ntuples > 0
-            json = rs.getvalue(0, 0)
-            observation = FHIR.from_contents(json)
-          end
-        end
-        if observation
+        observation_row = DB[:observation].select(:resource).first(id: id)
+        if observation_row
           response_code = 200
+          observation = FHIR.from_contents(observation_row[:resource])
           observation.id = id
           response_body = observation.to_json
         else
@@ -106,14 +88,11 @@ module Candle
         error.issue.last.code = 'required'
         error.issue.last.diagnostics = e.message
         response_body = error.to_json
-      ensure
-        con.close if con
       end
       [response_code, Candle::Config::CONTENT_TYPE, response_body]
     end
 
     def self.search(request, params)
-      Candle::Security.sanitize(params)
       patient = params['patient']
       encounter = params['encounter']
       code = params['code']
@@ -125,26 +104,22 @@ module Candle
       page = 0 if page < 0
       params.delete('page')
       begin
-        con = Candle::Config.dbconnect
+        query = DB[:observation].select(:resource, :id)
         observation = nil
-        query = 'SELECT id, resource FROM observation WHERE'
-        query += " id > #{page}"
-        count = 'SELECT count(*) FROM observation'
         unless params.empty?
-          clauses = []
-          clauses << " patient = #{patient}" if patient
-          clauses << " encounter = #{encounter}" if encounter
-          clauses << " code ILIKE '%#{code}%'" if code
+          query = query.where(patient: patient) if patient
+          query = query.where(encounter: encounter) if encounter
+          query = query.where(Sequel.ilike(:code, "%#{code}%")) if code
           # clauses << " resource @> '{ \"gender\": \"#{gender}\" }'" if gender
           if date # TODO: handle effectPeriod.start
             if date.start_with?('eq')
-              clauses << " to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') = '#{date[2..-1]}'"
+              query = query.where("to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') = ?", date[2..-1])
             elsif date.start_with?('ge')
-              clauses << " to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') >= '#{date[2..-1]}'"
+              query = query.where("to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') >= ?", date[2..-1])
             else
               # fastest
               # clauses << " resource @> '{ \"effectiveDateTime\": \"#{date}\" }'"
-              clauses << " to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') = '#{date}'"
+              query = query.where("to_date(resource ->> 'effectiveDateTime', 'YYYY-MM-DD') >= ?", date)
             end
           end
           if value
@@ -163,33 +138,23 @@ module Candle
             else
               '='
             end
-            clauses << " to_number(resource #>>'{valueQuantity,value}','9999D99') #{operator} #{value.to_f}"
+            query = query.where("to_number(resource #>>'{valueQuantity,value}','9999D99') #{operator} ?", value.to_f)
           end
-          query += ' AND' unless clauses.empty?
-          query += clauses.join(' AND')
-          count += ' WHERE' unless clauses.empty?
-          count += clauses.join(' AND')
         end
-        query += " ORDER BY id LIMIT #{Candle::Config::CONFIGURATION['page_size']}"
-        puts "QUERY: #{query}"
-        puts "COUNT: #{count}"
+        count_query = query.dup
+        query = query.limit(Candle::Config::CONFIGURATION['page_size'])
+        query = query.where {id > page}
         bundle = FHIR::Bundle.new({'type'=>'searchset','total'=>0})
-        page_total = 0
         start = Time.now
-        con.transaction do |con|
-          cs = con.exec(count)
-          bundle.total = cs.getvalue(0, 0).to_i
-          rs = con.exec(query)
-          rs.each do |row|
-            id = row['id']
-            json = row['resource']
-            resource = FHIR.from_contents(json)
-            resource.id = id
-            bundle.entry << Candle::Helpers.bundle_entry("#{request.base_url}/fhir/Observation/#{id}", resource)
-          end
-          page_total = rs.ntuples
-          bundle.link << FHIR::Bundle::Link.new({'relation': 'self', 'url': request.url})
+        bundle.total = count_query.count
+        query.each do |row|
+          id = row[:id]
+          json = row[:resource]
+          resource = FHIR.from_contents(json)
+          resource.id = id
+          bundle.entry << Candle::Helpers.bundle_entry("#{request.base_url}/fhir/Observation/#{id}", resource)
         end
+        bundle.link << FHIR::Bundle::Link.new({'relation': 'self', 'url': request.url})
         if bundle.total >= 0 || page_given
           begin
             start_page_from_index = bundle.entry.last.resource.id
@@ -201,7 +166,7 @@ module Candle
             else
               request_url.gsub!("page=#{page_raw}","page=#{start_page_from_index}")
             end
-            bundle.link << FHIR::Bundle::Link.new({'relation': 'next', 'url': request_url}) if page_total > 0
+            bundle.link << FHIR::Bundle::Link.new({'relation': 'next', 'url': request_url})
           rescue
           end
         end
@@ -217,8 +182,6 @@ module Candle
         error.issue.last.code = 'required'
         error.issue.last.diagnostics = e.message
         response_body = error.to_json
-      ensure
-        con.close if con
       end
       [response_code, Candle::Config::CONTENT_TYPE, response_body]
     end

@@ -1,14 +1,22 @@
 # OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE
 
 require 'yaml'
-require 'sinatra'
-require 'sinatra/cross_origin'
-require 'fhir_models'
-require 'pg'
+require 'logger'
+
+require 'bundler/setup'
+Bundler.require(:default)
 
 Dir.glob(File.join(File.dirname(File.absolute_path(__FILE__)),'lib','*.rb')).each do |file|
   require file
 end
+
+DB = Sequel.connect(adapter: 'postgres', :host => Candle::Config::CONFIGURATION['database']['host'],
+  :database => Candle::Config::CONFIGURATION['database']['name'],
+  :user => Candle::Config::CONFIGURATION['database']['user'],
+  :password => Candle::Config::CONFIGURATION['database']['password'])
+
+DB.loggers << Logger.new($stdout)
+Sequel.extension :pg_json_ops
 
 enable :cross_origin
 register Sinatra::CrossOrigin

@@ -17,6 +17,17 @@ bundle exec ruby app.rb
 
 Access the FHIR microservice at `http://localhost:4567/fhir`
 
+## Development and Testing
+To execute the test suite:
+```
+bundle exec rake test
+```
+
+To run the server in development mode with automatic reloading
+```
+rerun bundle exec ruby app.rb
+```
+
 ## Endpoints
 
  - `http://localhost:4567/fhir/metadata`
