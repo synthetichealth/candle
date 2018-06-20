@@ -1,4 +1,3 @@
-require 'pry'
 module Candle
   class Patient
     RACE_EXT = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-race'.freeze
