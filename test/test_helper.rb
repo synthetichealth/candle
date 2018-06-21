@@ -9,7 +9,6 @@ DB = Sequel.connect(adapter: 'postgres', :host => Candle::Config::CONFIGURATION[
   :user => Candle::Config::CONFIGURATION['database']['user'],
   :password => Candle::Config::CONFIGURATION['database']['password'])
 
-require './lib/config'
 require './lib/helpers'
 
 class SequelTestCase < Minitest::Test
