@@ -1,7 +1,7 @@
 module Candle
   class Patient
-    RACE_EXT = 'http://hl7.org/fhir/StructureDefinition/us-core-race'.freeze
-    ETHNICITY_EXT = 'http://hl7.org/fhir/StructureDefinition/us-core-ethnicity'.freeze
+    RACE_EXT = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-race'.freeze
+    ETHNICITY_EXT = 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity'.freeze
 
     def self.create(payload, content_type = 'application/fhir+json')
       begin
@@ -40,8 +40,10 @@ module Candle
         # Add the patient to the database
         begin
           name = patient.name.map{|name| [name.text, name.family, name.given].flatten.compact.join(' ')}.compact.join(' ')
-          race = patient.extension.find{|x| x.url == RACE_EXT}.valueCodeableConcept.coding.first.code rescue nil
-          ethnicity = patient.extension.find{|x| x.url == ETHNICITY_EXT}.valueCodeableConcept.coding.first.code rescue nil
+          race = patient.extension.find{|x| x.url == RACE_EXT}
+                        .extension.find{|x| x.url == 'ombCategory'}.valueCoding.code rescue nil
+          ethnicity = patient.extension.find{|x| x.url == ETHNICITY_EXT}
+                        .extension.find{|x| x.url == 'ombCategory'}.valueCoding.code rescue nil
           patient.id = nil
           resource = patient.to_json
           id = DB[:patient].insert(name: name, race: race, ethnicity: ethnicity, resource: resource)
@@ -118,8 +120,8 @@ module Candle
         query = query.where(Sequel.lit('patient.id > ?', page))
         unless params.empty?
           resource_jsonb = Sequel.pg_jsonb_op(Sequel.qualify('patient', 'resource'))
-          query = query.where(:race, race) if race
-          query = query.where(:ethnicity, ethnicity) if ethnicity
+          query = query.where(race: race) if race
+          query = query.where(ethnicity: ethnicity) if ethnicity
           query = query.where(Sequel.ilike(:name, "%#{name}%")) if name
           query = query.where(resource_jsonb.get_text('gender') => gender) if gender
           if birthDate

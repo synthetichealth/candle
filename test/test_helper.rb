@@ -2,10 +2,13 @@ require 'bundler/setup'
 Bundler.require(:default, :test)
 require 'minitest/autorun'
 require 'minitest/emoji'
-
-DB = Sequel.connect(adapter: 'postgres', host: 'localhost', database: 'candle')
-
 require './lib/config'
+
+DB = Sequel.connect(adapter: 'postgres', :host => Candle::Config::CONFIGURATION['database']['host'],
+  :database => Candle::Config::CONFIGURATION['database']['name'],
+  :user => Candle::Config::CONFIGURATION['database']['user'],
+  :password => Candle::Config::CONFIGURATION['database']['password'])
+
 require './lib/helpers'
 
 class SequelTestCase < Minitest::Test
